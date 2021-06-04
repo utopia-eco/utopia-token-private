@@ -76,13 +76,8 @@ describe('Testing Utopia', async () => {
             await utopiaPresale.finalize({from: accounts[0]})
             var finalized = await utopiaPresale.finalized();
             assert.strictEqual(finalized, true, "Unable to finalize smart contract")
-
-            var accountOneUtopia =  await utopiaToken.balanceOf.call(accounts[1]); // 500 M Tokens
-            assert.strictEqual(accountOneUtopia.toString(), "50000000000000000", "Utopia tokens not received after finalization")
-
-            var accountTwoUtopia =  await utopiaToken.balanceOf.call(accounts[1]); // 500 M Tokens
-            assert.strictEqual(accountTwoUtopia.toString(), "50000000000000000", "Utopia tokens not received after finalization")
         })
+
         it('Owner should be able to withdraw bnb', async() => {
             var ownerBalanceBeforeReceivingFunds = await web3.eth.getBalance(accounts[0])
             await utopiaPresale.forwardFunds();
@@ -91,7 +86,19 @@ describe('Testing Utopia', async () => {
             assert.isTrue(BigInt(ownerBalanceBeforeReceivingFunds) < BigInt(ownerBalanceAfterReceivingFunds), 
                 "Owner's fund before is " + ownerBalanceBeforeReceivingFunds.toString() + 
                 " which is less than what it is after at " + ownerBalanceAfterReceivingFunds.toString())
-        
+        })
+        it('Users should be able to withdraw tokens', async() => { 
+            await utopiaPresale.withdrawTokens({from: accounts[1]})
+            var accountOneUtopia =  await utopiaToken.balanceOf.call(accounts[1]); // 500 M Tokens
+            assert.strictEqual(accountOneUtopia.toString(), "50000000000000000", "Utopia tokens not received after finalization by Accounts[1]")
+            var accountOneUtopiaRemaining =  BigInt(await utopiaPresale.purchasedBnb(accounts[1])).toString()
+            assert.strictEqual(accountOneUtopiaRemaining, "0", "Utopia tokens balanced not reduced after they have been withdrawn")
+
+            await utopiaPresale.withdrawTokens({from: accounts[2]})
+            var accountTwoUtopia =  await utopiaToken.balanceOf.call(accounts[2]); // 500 M Tokens
+            assert.strictEqual(accountTwoUtopia.toString(), "50000000000000000", "Utopia tokens not received after finalization by Accounts[2]")
+            var accountTwoUtopiaRemaining =  BigInt(await utopiaPresale.purchasedBnb(accounts[2])).toString()
+            assert.strictEqual(accountTwoUtopiaRemaining, "0", "Utopia tokens balanced not reduced after they have been withdrawn")
         })
     })
 
@@ -119,38 +126,29 @@ describe('Testing Utopia', async () => {
             var accounts1PurchasedAmount = BigInt(await utopiaPresale.purchasedBnb(accounts[1])).toString()
             assert.strictEqual(accounts1PurchasedAmount, "1000000000000000000", "First buyer's purchase should be below max purchase value") 
 
-            // Purchase 0.5 bnb (2.5B UTP) worth of tokens from the presale smart contract. Note that acct will only receive remainder 1B
+            // Purchase 0.5 bnb (2.5B UTP) worth of tokens from the presale smart contract. Note that acct will only receive remainder 1B (0.2 BNB value)
             await utopiaPresale.buyTokens(accounts[2], {from: accounts[2], value: "500000000000000000"})
             var purchaserAddress = await utopiaPresale.purchaserList(1)
             assert.strictEqual(purchaserAddress, accounts[2], "Second buyer did not go through") 
-            var accounts1PurchasedAmount = BigInt(await utopiaPresale.purchasedBnb(accounts[2])).toString()
-            assert.strictEqual(accounts1PurchasedAmount, "200000000000000000", "Second buyer's purchase was not recorded")
+            var accounts2PurchasedAmount = BigInt(await utopiaPresale.purchasedBnb(accounts[2])).toString()
+            assert.strictEqual(accounts2PurchasedAmount, "200000000000000000", "Second buyer's purchase was not recorded")
 
             // Purchase 0.1 bnb from smart contract but fail since it has reached hard cap (over-subscribed)
             await utopiaPresale.buyTokens(accounts[3], {from: accounts[3], value: "100000000000000000"})
-            var accounts3PurchasedUtopiaTokens = await utopiaPresale.purchasedBnb(accounts[3])
-            assert.strictEqual(accounts3PurchasedUtopiaTokens.toString(), "0", "Third buyer should not go through") 
+            var accounts3PurchasedUtopiaTokens = BigInt(await utopiaPresale.purchasedBnb(accounts[3])).toString()
+            assert.strictEqual(accounts3PurchasedUtopiaTokens, "0", "Third buyer should not go through") 
 
         })
         it('Additional purchases should not be able to go through', async() => {
             // Purchase 0.5 bnb (2.5B UTP) worth of tokens from the presale smart contract. Note that acct will only receive remainder 2B
             await utopiaPresale.buyTokens(accounts[2], {from: accounts[2], value: "100000000000000000"})
-            var accounts1PurchasedAmount = BigInt(await utopiaPresale.purchasedBnb(accounts[2])).toString()
-            assert.strictEqual(accounts1PurchasedAmount, "200000000000000000", "Second buyer's purchase changed")
+            var accounts2PurchasedAmount = BigInt(await utopiaPresale.purchasedBnb(accounts[2])).toString()
+            assert.strictEqual(accounts2PurchasedAmount, "200000000000000000", "Second buyer's purchase changed")
         })
         it('Should be able to be finalized', async() => {
             await utopiaPresale.finalize({from: accounts[0]})
             var finalized = await utopiaPresale.finalized();
             assert.strictEqual(finalized, true, "Unable to finalize smart contract")
-
-            var accountOneUtopia =  await utopiaToken.balanceOf.call(accounts[1]); // 5B Tokens
-            assert.strictEqual(accountOneUtopia.toString(), "500000000000000000", "Utopia tokens not received after finalization by Accounts[1]")
-
-            var accountTwoUtopia =  await utopiaToken.balanceOf.call(accounts[2]); // 500 M Tokens
-            assert.strictEqual(accountTwoUtopia.toString(), "100000000000000000", "Utopia tokens not received after finalization by Accounts[2]")
-
-            var accountThreeUtopia =  await utopiaToken.balanceOf.call(accounts[3]); // 500 M Tokens
-            assert.strictEqual(accountThreeUtopia.toString(), "0", "Utopia tokens should not be received by Accounts[3]")
         })
         it('Owner should be able to withdraw bnb', async() => {
             var ownerBalanceBeforeReceivingFunds = await web3.eth.getBalance(accounts[0])
@@ -161,6 +159,23 @@ describe('Testing Utopia', async () => {
                 "Owner's fund before is " + ownerBalanceBeforeReceivingFunds.toString() + 
                 " which is less than what it is after at " + ownerBalanceAfterReceivingFunds.toString())
         
+        }),
+        it('Users should be able to withdraw tokens', async() => { 
+            var accountOneUtopiaRemaining =  BigInt(await utopiaPresale.purchasedBnb(accounts[1])).toString()
+            assert.strictEqual(accountOneUtopiaRemaining, "1000000000000000000", "Utopia tokens balance should not have changed before withdrawal")
+            await utopiaPresale.withdrawTokens({from: accounts[1]})
+            var accountOneUtopia =  await utopiaToken.balanceOf.call(accounts[1]); // 5B Tokens
+            assert.strictEqual(accountOneUtopia.toString(), "500000000000000000", "Utopia tokens not received after finalization by Accounts[1]")
+            var accountOneUtopiaRemaining =  BigInt(await utopiaPresale.purchasedBnb(accounts[1])).toString()
+            assert.strictEqual(accountOneUtopiaRemaining, "0", "Utopia tokens balanced not reduced after they have been withdrawn")
+
+            await utopiaPresale.withdrawTokens({from: accounts[2]})
+            var accountTwoUtopia =  await utopiaToken.balanceOf.call(accounts[2]); // 500 M Tokens
+            assert.strictEqual(accountTwoUtopia.toString(), "100000000000000000", "Utopia tokens not received after finalization by Accounts[2]")
+            var accountTwoUtopiaRemaining =  BigInt(await utopiaPresale.purchasedBnb(accounts[2])).toString()
+            assert.strictEqual(accountTwoUtopiaRemaining, "0", "Utopia tokens balanced not reduced after they have been withdrawn")
+            
+            await truffleAssert.reverts(utopiaPresale.withdrawTokens({from: accounts[3]}))
         })
     })
 })

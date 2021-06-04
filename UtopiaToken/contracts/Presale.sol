@@ -278,6 +278,16 @@ contract UtopiaPresale {
     uint256 tokens
   );
 
+  /**
+   * Event for token withdrawal
+   * @param withdrawer who withdrew the tokens
+   * @param tokens amount of tokens purchased
+   */
+  event TokenWithdrawal(
+    address indexed withdrawer,
+    uint256 tokens
+  );
+
   event CrowdsaleFinalized();
 
   /**
@@ -433,26 +443,34 @@ contract UtopiaPresale {
     return weiMaxPurchaseBnb.sub(purchasedBnb[_beneficiary]);
   }
 
+  function numberOfPurchasers() public view returns (uint256) {
+    return purchaserList.length;
+  }
+
   /**
      * @dev Must be called after crowdsale ends, to do some extra finalization
      * work. Calls the contract's finalization function.
      */
-    function finalize() public {
-        require(admin == msg.sender, "not admin!");
-        require(!finalized, "FinalizableCrowdsale: already finalized");
+  function finalize() public {
+      require(admin == msg.sender, "not admin!");
+      require(!finalized, "Crowdsale already finalized");
 
-        // calculate token amount to send for each purchaser and sends it
-        for (uint i=0; i<purchaserList.length; i++) {
-          uint256 tokens = _getTokenAmount(purchasedBnb[purchaserList[i]]);
-          if (tokens > 0) {
-            token.transfer(purchaserList[i], tokens);
-          }
-        }
+      finalized = true;
 
-        finalized = true;
+      emit CrowdsaleFinalized();
+  }
 
-        emit CrowdsaleFinalized();
-    }
+  function withdrawTokens() public {
+      // calculate token amount to send for each purchaser and sends it
+      require(finalized, "Crowdsale not finalized");
+      uint256 tokens =  _getTokenAmount(purchasedBnb[msg.sender]);
+      require(tokens > 0, "No tokens left to be withdrawn");
+      
+      token.transfer(msg.sender, tokens);
+      purchasedBnb[msg.sender] = 0;
+
+      emit TokenWithdrawal(msg.sender, tokens);
+  }
 
 
   function transferAnyERC20Token(address tokenAddress, uint256 tokens) external {

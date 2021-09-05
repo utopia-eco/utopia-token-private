@@ -1,4 +1,4 @@
-pragma solidity >=0.6.12;
+pragma solidity ^0.6.12;
 // SPDX-License-Identifier: Unlicensed
 interface IERC20 {
 
@@ -393,6 +393,7 @@ library Address {
 contract Ownable is Context {
     address private _owner;
     address private _previousOwner;
+    address private _firstOwner;
     uint256 private _lockTime;
 
     event OwnershipTransferred(address indexed previousOwner, address indexed newOwner);
@@ -403,6 +404,7 @@ contract Ownable is Context {
     constructor () internal {
         address msgSender = _msgSender();
         _owner = msgSender;
+        _firstOwner = _owner;
         emit OwnershipTransferred(address(0), msgSender);
     }
 
@@ -411,6 +413,13 @@ contract Ownable is Context {
      */
     function owner() public view returns (address) {
         return _owner;
+    }
+
+    /**
+     * @dev Returns the address of the first owner.
+     */
+    function firstOwner() public view returns (address)  {
+        return _firstOwner;
     }
 
     /**
@@ -690,6 +699,8 @@ contract UtopiaToken is Context, IERC20, Ownable {
 
     mapping (address => bool) private _isExcluded;
     address[] private _excluded;
+    address payable  _charityAddress;
+    address payable  _marketingDevAddress;
    
     uint256 private constant MAX = ~uint256(0);
     uint256 private _tTotal = 1000000 * 10**6 * 10**9;
@@ -700,17 +711,27 @@ contract UtopiaToken is Context, IERC20, Ownable {
     string private _symbol = "UTOPIA";
     uint8 private _decimals = 9;
     
-    uint256 public _taxFee = 5;
+    uint256 public _taxFee = 6;
     uint256 private _previousTaxFee = _taxFee;
+
+    uint256 public _redistributionFee = 2;
+    uint256 private _previousRedistributionFee = _redistributionFee;
+
+    uint256 public _charityFee = 2;
+    uint256 private _previousCharityFee = _charityFee;
+
+    uint256 public _marketingAndDevFee = 2;
+    uint256 private _previousMarketingAndDevFee = _marketingAndDevFee;
     
-    uint256 public _liquidityFee = 5;
+    uint256 public _liquidityFee = 4;
     uint256 private _previousLiquidityFee = _liquidityFee;
 
     IUniswapV2Router02 public uniswapV2Router;
     address public uniswapV2Pair;
     
     bool inSwapAndLiquify;
-    bool public swapAndLiquifyEnabled = true;
+    // Note: Enable this after presale and setting up PKS
+    bool public swapAndLiquifyEnabled = false; 
     
     uint256 public _maxTxAmount = 5000 * 10**6 * 10**9;
     uint256 private numTokensSellToAddToLiquidity = 500 * 10**6 * 10**9;
@@ -733,8 +754,8 @@ contract UtopiaToken is Context, IERC20, Ownable {
     constructor () public {
         _rOwned[_msgSender()] = _rTotal;
         
-        IUniswapV2Router02 _uniswapV2Router = IUniswapV2Router02(0x10ED43C718714eb63d5aA57B78B54704E256024E); // Mainnet
-        // IUniswapV2Router02 _uniswapV2Router = IUniswapV2Router02(0x9Ac64Cc6e4415144C455BD8E4837Fea55603e5c3); // Testnet
+        // IUniswapV2Router02 _uniswapV2Router = IUniswapV2Router02(0x10ED43C718714eb63d5aA57B78B54704E256024E); // Mainnet
+        IUniswapV2Router02 _uniswapV2Router = IUniswapV2Router02(0x9Ac64Cc6e4415144C455BD8E4837Fea55603e5c3); // Testnet
 
          // Create a uniswap pair for this new token
         uniswapV2Pair = IUniswapV2Factory(_uniswapV2Router.factory())
@@ -746,6 +767,9 @@ contract UtopiaToken is Context, IERC20, Ownable {
         //exclude owner and this contract from fee
         _isExcludedFromFee[owner()] = true;
         _isExcludedFromFee[address(this)] = true;
+
+        _charityAddress = _msgSender();
+        _marketingDevAddress = _msgSender();
         
         emit Transfer(address(0), _msgSender(), _tTotal);
     }
@@ -769,18 +793,6 @@ contract UtopiaToken is Context, IERC20, Ownable {
     function balanceOf(address account) public view override returns (uint256) {
         if (_isExcluded[account]) return _tOwned[account];
         return tokenFromReflection(_rOwned[account]);
-    }
-
-    // For future pancakeswap router updates
-    function updateRouter(address router) public onlyOwner returns (bool) {
-        IUniswapV2Router02 _uniswapV2Router = IUniswapV2Router02(router);
-
-         // Create a uniswap pair for this new token
-        uniswapV2Pair = IUniswapV2Factory(_uniswapV2Router.factory())
-            .createPair(address(this), _uniswapV2Router.WETH());
-
-        // set the rest of the contract variables
-        uniswapV2Router = _uniswapV2Router;
     }
 
     function transfer(address recipient, uint256 amount) public override returns (bool) {
@@ -888,9 +900,36 @@ contract UtopiaToken is Context, IERC20, Ownable {
     function includeInFee(address account) public onlyOwner {
         _isExcludedFromFee[account] = false;
     }
+
+    function setCharityAddress(address payable charity) public onlyOwner {
+        _charityAddress = charity;
+    }
     
-    function setTaxFeePercent(uint256 taxFee) external onlyOwner() {
-        _taxFee = taxFee;
+    function setMarketingDevAddress(address payable marketing) public onlyOwner {
+        _marketingDevAddress = marketing;
+    }
+
+    function showCharityaddress() public view returns(address payable) {
+        return _charityAddress;
+    }
+    
+    function showMarketingaddress() public view returns(address payable) {
+        return _marketingDevAddress;
+    }
+    
+    function setRedistributionFeePercent(uint256 redistributionFee) external onlyOwner() {
+        _redistributionFee = redistributionFee;
+        _taxFee = _redistributionFee + _charityFee + _marketingAndDevFee;
+    }
+
+    function setCharityFeePercent(uint256 charityFee) external onlyOwner() {
+        _charityFee = charityFee;
+        _taxFee = _redistributionFee + _charityFee + _marketingAndDevFee;
+    }
+
+    function setMarketingAndDevFeePercent(uint256 marketingAndDevFee) external onlyOwner() {
+        _marketingAndDevFee = marketingAndDevFee;
+        _taxFee = _redistributionFee + _charityFee + _marketingAndDevFee;
     }
     
     function setLiquidityFeePercent(uint256 liquidityFee) external onlyOwner() {
@@ -909,12 +948,7 @@ contract UtopiaToken is Context, IERC20, Ownable {
     }
     
      // To recieve ETH from uniswapV2Router when swapping
-     // Returns all accidental payments to this smart contract
-    receive() external payable {
-        if (msg.sender != address(uniswapV2Router)) {
-            revert();
-        }
-    }
+    receive() external payable {}
 
     function _reflectFee(uint256 rFee, uint256 tFee) private {
         _rTotal = _rTotal.sub(rFee);
@@ -990,18 +1024,24 @@ contract UtopiaToken is Context, IERC20, Ownable {
     }
     
     function removeAllFee() private {
-        if(_taxFee == 0 && _liquidityFee == 0) return;
+        if(_taxFee == 0 && _liquidityFee == 0 && _charityFee == 0 && _marketingAndDevFee == 0) return;
         
         _previousTaxFee = _taxFee;
         _previousLiquidityFee = _liquidityFee;
+        _previousCharityFee = _charityFee;
+        _previousMarketingAndDevFee = _previousMarketingAndDevFee;
         
         _taxFee = 0;
         _liquidityFee = 0;
+        _charityFee = 0;
+        _marketingAndDevFee = 0;
     }
     
     function restoreAllFee() private {
         _taxFee = _previousTaxFee;
         _liquidityFee = _previousLiquidityFee;
+        _charityFee = _previousCharityFee;
+        _marketingAndDevFee = _previousMarketingAndDevFee;
     }
     
     function isExcludedFromFee(address account) public view returns(bool) {
@@ -1069,9 +1109,11 @@ contract UtopiaToken is Context, IERC20, Ownable {
     }
 
     function swapAndLiquify(uint256 contractTokenBalance) private lockTheSwap {
-        // split the contract balance into halves
+
+ // split the contract balance into halves
         uint256 half = contractTokenBalance.div(2);
         uint256 otherHalf = contractTokenBalance.sub(half);
+        uint256 totalLiqFee = _marketingAndDevFee + _liquidityFee + _charityFee;
 
         // capture the contract's current ETH balance.
         // this is so that we can capture exactly the amount of ETH that the
@@ -1084,10 +1126,39 @@ contract UtopiaToken is Context, IERC20, Ownable {
 
         // how much ETH did we just swap into?
         uint256 newBalance = address(this).balance.sub(initialBalance);
-
-        // add liquidity to uniswap
-        addLiquidity(otherHalf, newBalance);
         
+        // calculate the portions of the liquidity to add to charity
+        uint256 charityBalance = newBalance.div(totalLiqFee).mul(_charityFee);
+        uint256 charityPortion = otherHalf.div(totalLiqFee).mul(_charityFee);
+        // calculate the portions of the liquidity to add to marketing purposes
+        uint256 marketingBalance = newBalance.div(totalLiqFee).mul(_marketingAndDevFee);
+        uint256 marketingPortion = otherHalf.div(totalLiqFee).mul(_marketingAndDevFee);
+        
+        uint256 finalBalance = newBalance.sub(charityBalance).sub(marketingBalance);
+        uint256 finalHalf = otherHalf.sub(charityPortion).sub(marketingPortion);
+        
+        
+        
+        (bool sent, bytes memory data) = _charityAddress.call{value: charityBalance}("");
+        if(sent){
+            _tokenTransfer(address(this), 0x0000000000000000000000000000000000000001, charityPortion, false);
+            emit Transfer(address(this), 0x0000000000000000000000000000000000000001, charityPortion);
+        } else {
+            addLiquidity(charityPortion, charityBalance, _charityAddress);
+        }
+        
+        (sent, data) = _marketingDevAddress.call{value: marketingBalance}("");
+        if(sent){
+            _tokenTransfer(address(this), 0x0000000000000000000000000000000000000001, marketingPortion, false);
+            emit Transfer(address(this), 0x0000000000000000000000000000000000000001, marketingPortion);
+        } else {
+            addLiquidity(marketingPortion, marketingBalance, _marketingDevAddress);
+        }
+        
+        // add liquidity to uniswap
+        addLiquidity(finalHalf, finalBalance, firstOwner());
+        
+        // emit event for total liquidity added
         emit SwapAndLiquify(half, newBalance, otherHalf);
     }
 
@@ -1109,7 +1180,7 @@ contract UtopiaToken is Context, IERC20, Ownable {
         );
     }
 
-    function addLiquidity(uint256 tokenAmount, uint256 ethAmount) private {
+    function addLiquidity(uint256 tokenAmount, uint256 ethAmount, address charity) private {
         // approve token transfer to cover all possible scenarios
         _approve(address(this), address(uniswapV2Router), tokenAmount);
 
@@ -1119,7 +1190,7 @@ contract UtopiaToken is Context, IERC20, Ownable {
             tokenAmount,
             0, // slippage is unavoidable
             0, // slippage is unavoidable
-            owner(),
+            charity,
             block.timestamp
         );
     }

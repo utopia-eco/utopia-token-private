@@ -7,7 +7,8 @@ module.exports = async function(deployer) {
 
     // Thats max 1 BNB per address
     // Rate: 1BNB -> 5B UTP
-    await deployer.deploy(UtopiaPresale, 500*(10**6), token.address, BigInt(1000000000000000000), 1620958382)
+    // Rate: 1BNB -> 583.33... Million UTP
+    await deployer.deploy(UtopiaPresale, 583333333, token.address, 1620958382)
     let presale = await UtopiaPresale.deployed();
     console.log(token.address)
     console.log(presale.address);

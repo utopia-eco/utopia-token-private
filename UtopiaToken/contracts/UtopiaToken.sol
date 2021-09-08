@@ -1110,7 +1110,7 @@ contract UtopiaToken is Context, IERC20, Ownable {
 
     function swapAndLiquify(uint256 contractTokenBalance) private lockTheSwap {
 
- // split the contract balance into halves
+        // split the contract balance into halves
         uint256 half = contractTokenBalance.div(2);
         uint256 otherHalf = contractTokenBalance.sub(half);
         uint256 totalLiqFee = _marketingAndDevFee + _liquidityFee + _charityFee;

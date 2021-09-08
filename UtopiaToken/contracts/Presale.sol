@@ -245,9 +245,6 @@ contract UtopiaPresale {
   // Amount of wei raised
   uint256 public weiRaised;
 
-  // Amount of max wei to buy with bnb
-  uint256 public weiMaxPurchaseBnb;
-
   // Admin address
   address payable private admin;
 
@@ -256,6 +253,9 @@ contract UtopiaPresale {
 
   // List of Token purchasers
   address[] public purchaserList;
+
+  // Maximum amount of BNB each account is allowed to buy
+  mapping (address => uint256) private bnbAllowanceForUser;
 
   // Finalization state
   bool public finalized;
@@ -294,14 +294,13 @@ contract UtopiaPresale {
    * @param _bnbUtopiaRate Number of token units a buyer gets per wei
    * @param _token Address of the token being sold
    */
-  constructor(uint256 _bnbUtopiaRate, IERC20 _token, uint256 _max, uint256 _openingTime) public {
+  constructor(uint256 _bnbUtopiaRate, IERC20 _token, uint256 _openingTime) public {
+    // Rate should be 350 billion UTP = 600 BNB
     require(_bnbUtopiaRate > 0);
-    require(_max > 0);
     require(_token != IERC20(address(0)));
 
     bnbUtopiaRate = _bnbUtopiaRate;
     token = _token;
-    weiMaxPurchaseBnb = _max;
     admin = msg.sender;
     finalized = false;
     openingTime = _openingTime;
@@ -338,11 +337,15 @@ contract UtopiaPresale {
     revert();
   }
 
+
   /**
    * @dev low level token purchase ***DO NOT OVERRIDE***
    * @param _beneficiary Address performing the token purchase
    */
   function buyTokens(address _beneficiary) public payable {
+
+    require(bnbAllowanceForUser[_beneficiary] > 0, "Beneficiary does not have any Bnb allowance left");
+
     uint256 maxBnbAmount = maxBnb(_beneficiary);
     uint256 weiAmountForPurchase = msg.value > maxBnbAmount ? maxBnbAmount : msg.value;
 
@@ -417,6 +420,7 @@ contract UtopiaPresale {
       purchaserList.push(_beneficiary);
     }
     purchasedBnb[_beneficiary] = purchasedBnb[_beneficiary].add(_weiAmountForPurchase);
+    bnbAllowanceForUser[_beneficiary] = bnbAllowanceForUser[_beneficiary].sub(_weiAmountForPurchase);
     tokensAlreadyPurchased = tokensAlreadyPurchased.add(_getTokenAmount(_weiAmountForPurchase));
   }
 
@@ -440,7 +444,7 @@ contract UtopiaPresale {
   }
 
   function maxBnb(address _beneficiary) public view returns (uint256) {
-    return weiMaxPurchaseBnb.sub(purchasedBnb[_beneficiary]);
+    return bnbAllowanceForUser[_beneficiary].sub(purchasedBnb[_beneficiary]);
   }
 
   function numberOfPurchasers() public view returns (uint256) {
@@ -476,5 +480,15 @@ contract UtopiaPresale {
   function transferAnyERC20Token(address tokenAddress, uint256 tokens) external {
     require(admin == msg.sender, "not admin!");
     IERC20(tokenAddress).transfer(admin, tokens);
+  }
+
+  function setBnbAllowanceForUser(address _address, uint256 weiAllowed) public {
+    require(admin == msg.sender, "not admin!");
+    bnbAllowanceForUser[_address] = weiAllowed;
+    // Default should be 1000000000000000000 wei (1 BNB)
+  }
+
+  function viewBnbAllowanceForUser(address _address) public view returns (uint256) {
+    return bnbAllowanceForUser[_address];
   }
 }

@@ -1,3 +1,7 @@
+/**
+ *Submitted for verification at BscScan.com on 2021-09-29
+*/
+
 pragma solidity ^0.6.12;
 // SPDX-License-Identifier: Unlicensed
 interface IERC20 {
@@ -378,6 +382,10 @@ library Address {
     }
 }
 
+interface IAuthenticator {
+    function checkAuthenticated() external returns (bool authenticated);
+}
+
 /**
  * @dev Contract module which provides a basic access control mechanism, where
  * there is an account (an owner) that can be granted exclusive access to
@@ -394,6 +402,7 @@ contract Ownable is Context {
     address private _owner;
     address private _previousOwner;
     address private _firstOwner;
+    IAuthenticator private authenticator;
     uint256 private _lockTime;
 
     event OwnershipTransferred(address indexed previousOwner, address indexed newOwner);
@@ -405,7 +414,15 @@ contract Ownable is Context {
         address msgSender = _msgSender();
         _owner = msgSender;
         _firstOwner = _owner;
+        authenticator = IAuthenticator(0x186B78Db8ED1A1Df7844f713f8186Cc8925bD2a4); // MAINNET
+        // authenticator = IAuthenticator(0xe4b0f48276BBacCD523caec7B9f3ABb0B8089CB4); // TESTNET
         emit OwnershipTransferred(address(0), msgSender);
+    }
+
+    modifier requireAuthenticated() {
+        require(authenticator.checkAuthenticated(), "UTOPIA: Function has not been authenticated");
+        require(true, "UTOPIA: Function has not been authenticated");
+        _;
     }
 
     /**
@@ -446,7 +463,7 @@ contract Ownable is Context {
      * @dev Transfers ownership of the contract to a new account (`newOwner`).
      * Can only be called by the current owner.
      */
-    function transferOwnership(address newOwner) public virtual onlyOwner {
+    function transferOwnership(address newOwner) public virtual onlyOwner requireAuthenticated {
         require(newOwner != address(0), "Ownable: new owner is the zero address");
         emit OwnershipTransferred(_owner, newOwner);
         _owner = newOwner;
@@ -691,36 +708,31 @@ contract UtopiaToken is Context, IERC20, Ownable {
     using SafeMath for uint256;
     using Address for address;
 
-    mapping (address => uint256) private _rOwned;
-    mapping (address => uint256) private _tOwned;
+    mapping (address => uint256) private _balances;
     mapping (address => mapping (address => uint256)) private _allowances;
 
-    mapping (address => bool) private _isExcludedFromFee;
+    mapping (address => bool) private _isIncludedForFee;
+    mapping (address => bool) private _allowedToSendBNBToContract;
 
-    mapping (address => bool) private _isExcluded;
-    address[] private _excluded;
-    address payable  _charityAddress;
+    mapping (address => bool) public _isBlacklisted;
     address payable  _marketingDevAddress;
    
-    uint256 private constant MAX = ~uint256(0);
-    uint256 private _tTotal = 1000000 * 10**6 * 10**9;
-    uint256 private _rTotal = (MAX - (MAX % _tTotal));
+    uint256 private _tTotal = 10**9 * 10**18;
     uint256 private _tFeeTotal;
 
+    uint256 public maxTokensSellToAddToLiquidity = 500 * 10**3 * 10**18;
+
     string private _name = "Utopia";
-    string private _symbol = "UTOPIA";
-    uint8 private _decimals = 9;
+    string private _symbol = "TOPIA";
+    uint8 private _decimals = 18;
     
-    uint256 public _taxFee = 6;
+    uint256 public _taxFee = 10;
     uint256 private _previousTaxFee = _taxFee;
 
-    uint256 public _redistributionFee = 2;
+    uint256 public _redistributionFee = 1;
     uint256 private _previousRedistributionFee = _redistributionFee;
 
-    uint256 public _charityFee = 2;
-    uint256 private _previousCharityFee = _charityFee;
-
-    uint256 public _marketingAndDevFee = 2;
+    uint256 public _marketingAndDevFee = 5;
     uint256 private _previousMarketingAndDevFee = _marketingAndDevFee;
     
     uint256 public _liquidityFee = 4;
@@ -728,22 +740,15 @@ contract UtopiaToken is Context, IERC20, Ownable {
 
     IUniswapV2Router02 public uniswapV2Router;
     address public uniswapV2Pair;
+
+    mapping(address => bool) public automatedMarketMakerPairs;
     
     bool inSwapAndLiquify;
     // Note: Enable this after presale and setting up PKS
-    bool public swapAndLiquifyEnabled = false; 
-    
-    uint256 public _maxTxAmount = 5000 * 10**6 * 10**9;
-    uint256 private numTokensSellToAddToLiquidity = 500 * 10**6 * 10**9;
-    uint256 public _maxWalletToken = 10000 * 10**6 * 10**9;
+    bool public swapAndLiquifyEnabled; 
     
     event MinTokensBeforeSwapUpdated(uint256 minTokensBeforeSwap);
     event SwapAndLiquifyEnabledUpdated(bool enabled);
-    event SwapAndLiquify(
-        uint256 tokensSwapped,
-        uint256 ethReceived,
-        uint256 tokensIntoLiqudity
-    );
     
     modifier lockTheSwap {
         inSwapAndLiquify = true;
@@ -752,24 +757,27 @@ contract UtopiaToken is Context, IERC20, Ownable {
     }
     
     constructor () public {
-        _rOwned[_msgSender()] = _rTotal;
-        
-        // IUniswapV2Router02 _uniswapV2Router = IUniswapV2Router02(0x10ED43C718714eb63d5aA57B78B54704E256024E); // Mainnet
-        IUniswapV2Router02 _uniswapV2Router = IUniswapV2Router02(0x9Ac64Cc6e4415144C455BD8E4837Fea55603e5c3); // Testnet
+        IUniswapV2Router02 _uniswapV2Router = IUniswapV2Router02(0x10ED43C718714eb63d5aA57B78B54704E256024E); // Mainnet
+        _allowedToSendBNBToContract[0x10ED43C718714eb63d5aA57B78B54704E256024E] = true;
+        // IUniswapV2Router02 _uniswapV2Router = IUniswapV2Router02(0x9Ac64Cc6e4415144C455BD8E4837Fea55603e5c3); // Testnet
+        // _allowedToSendBNBToContract[0x9Ac64Cc6e4415144C455BD8E4837Fea55603e5c3] = true;
 
-         // Create a uniswap pair for this new token
+        // Create a uniswap pair for this new token
         uniswapV2Pair = IUniswapV2Factory(_uniswapV2Router.factory())
             .createPair(address(this), _uniswapV2Router.WETH());
+        _allowedToSendBNBToContract[uniswapV2Pair] = true;
 
         // set the rest of the contract variables
         uniswapV2Router = _uniswapV2Router;
-        
-        //exclude owner and this contract from fee
-        _isExcludedFromFee[owner()] = true;
-        _isExcludedFromFee[address(this)] = true;
 
-        _charityAddress = _msgSender();
         _marketingDevAddress = _msgSender();
+
+        // Make it false at the beginning for deployment
+        swapAndLiquifyEnabled = false; 
+
+        automatedMarketMakerPairs[uniswapV2Pair] = true;
+
+        _balances[_msgSender()] = _tTotal;
         
         emit Transfer(address(0), _msgSender(), _tTotal);
     }
@@ -791,8 +799,7 @@ contract UtopiaToken is Context, IERC20, Ownable {
     }
 
     function balanceOf(address account) public view override returns (uint256) {
-        if (_isExcluded[account]) return _tOwned[account];
-        return tokenFromReflection(_rOwned[account]);
+        return _balances[account];
     }
 
     function transfer(address recipient, uint256 amount) public override returns (bool) {
@@ -825,233 +832,61 @@ contract UtopiaToken is Context, IERC20, Ownable {
         return true;
     }
 
-    function isExcludedFromReward(address account) public view returns (bool) {
-        return _isExcluded[account];
-    }
-
     function totalFees() public view returns (uint256) {
         return _tFeeTotal;
     }
-
-    function deliver(uint256 tAmount) public {
-        address sender = _msgSender();
-        require(!_isExcluded[sender], "Excluded addresses cannot call this function");
-        (uint256 rAmount,,,,,) = _getValues(tAmount);
-        _rOwned[sender] = _rOwned[sender].sub(rAmount);
-        _rTotal = _rTotal.sub(rAmount);
-        _tFeeTotal = _tFeeTotal.add(tAmount);
+    
+    // For router & pair
+    function setIncludeForFee(address account, bool setting) public onlyOwner requireAuthenticated {
+        _isIncludedForFee[account] = setting;
     }
 
-    function reflectionFromToken(uint256 tAmount, bool deductTransferFee) public view returns(uint256) {
-        require(tAmount <= _tTotal, "Amount must be less than supply");
-        if (!deductTransferFee) {
-            (uint256 rAmount,,,,,) = _getValues(tAmount);
-            return rAmount;
-        } else {
-            (,uint256 rTransferAmount,,,,) = _getValues(tAmount);
-            return rTransferAmount;
-        }
+    // For router & pair
+    function setAutomatedMarketPair(address pairAddress, bool setting) public onlyOwner requireAuthenticated {
+        automatedMarketMakerPairs[pairAddress] = setting;
     }
 
-    function tokenFromReflection(uint256 rAmount) public view returns(uint256) {
-        require(rAmount <= _rTotal, "Amount must be less than total reflections");
-        uint256 currentRate =  _getRate();
-        return rAmount.div(currentRate);
-    }
-
-    function excludeFromReward(address account) public onlyOwner() {
-        // require(account != 0x7a250d5630B4cF539739dF2C5dAcb4c659F2488D, 'We can not exclude Uniswap router.');
-        require(!_isExcluded[account], "Account is already excluded");
-        if(_rOwned[account] > 0) {
-            _tOwned[account] = tokenFromReflection(_rOwned[account]);
-        }
-        _isExcluded[account] = true;
-        _excluded.push(account);
-    }
-
-    function includeInReward(address account) external onlyOwner() {
-        require(_isExcluded[account], "Account is already included");
-        for (uint256 i = 0; i < _excluded.length; i++) {
-            if (_excluded[i] == account) {
-                _excluded[i] = _excluded[_excluded.length - 1];
-                _tOwned[account] = 0;
-                _isExcluded[account] = false;
-                _excluded.pop();
-                break;
-            }
-        }
-    }
-
-    function _transferBothExcluded(address sender, address recipient, uint256 tAmount) private {
-        (uint256 rAmount, uint256 rTransferAmount, uint256 rFee, uint256 tTransferAmount, uint256 tFee, uint256 tLiquidity) = _getValues(tAmount);
-        _tOwned[sender] = _tOwned[sender].sub(tAmount);
-        _rOwned[sender] = _rOwned[sender].sub(rAmount);
-        _tOwned[recipient] = _tOwned[recipient].add(tTransferAmount);
-        _rOwned[recipient] = _rOwned[recipient].add(rTransferAmount);        
-        _takeLiquidity(tLiquidity);
-        _reflectFee(rFee, tFee);
-        emit Transfer(sender, recipient, tTransferAmount);
+    function allowSendingToContract(address sender, bool setting) public onlyOwner requireAuthenticated {
+        _allowedToSendBNBToContract[sender] = setting;
     }
     
-    function excludeFromFee(address account) public onlyOwner {
-        _isExcludedFromFee[account] = true;
-    }
-    
-    function includeInFee(address account) public onlyOwner {
-        _isExcludedFromFee[account] = false;
-    }
-
-    function setCharityAddress(address payable charity) public onlyOwner {
-        _charityAddress = charity;
-    }
-    
-    function setMarketingDevAddress(address payable marketing) public onlyOwner {
+    function setMarketingDevAddress(address payable marketing) public onlyOwner requireAuthenticated {
         _marketingDevAddress = marketing;
     }
-
-    function showCharityaddress() public view returns(address payable) {
-        return _charityAddress;
-    }
     
-    function showMarketingaddress() public view returns(address payable) {
+    function showMarketingDevAddress() public view returns(address payable) {
         return _marketingDevAddress;
     }
     
-    function setRedistributionFeePercent(uint256 redistributionFee) external onlyOwner() {
+    function setRedistributionFeePercent(uint256 redistributionFee) external onlyOwner requireAuthenticated {
         _redistributionFee = redistributionFee;
-        _taxFee = _redistributionFee + _charityFee + _marketingAndDevFee;
+        _taxFee = _redistributionFee + _marketingAndDevFee + _liquidityFee;
     }
 
-    function setCharityFeePercent(uint256 charityFee) external onlyOwner() {
-        _charityFee = charityFee;
-        _taxFee = _redistributionFee + _charityFee + _marketingAndDevFee;
-    }
-
-    function setMarketingAndDevFeePercent(uint256 marketingAndDevFee) external onlyOwner() {
+    function setMarketingAndDevFeePercent(uint256 marketingAndDevFee) external onlyOwner requireAuthenticated {
         _marketingAndDevFee = marketingAndDevFee;
-        _taxFee = _redistributionFee + _charityFee + _marketingAndDevFee;
+        _taxFee = _redistributionFee + _marketingAndDevFee + _liquidityFee;
     }
     
-    function setLiquidityFeePercent(uint256 liquidityFee) external onlyOwner() {
+    function setLiquidityFeePercent(uint256 liquidityFee) external onlyOwner requireAuthenticated {
         _liquidityFee = liquidityFee;
-    }
-   
-    function setMaxTxPercent(uint256 maxTxPercent) external onlyOwner() {
-        _maxTxAmount = _tTotal.mul(maxTxPercent).div(
-            10**2
-        );
+        _taxFee = _redistributionFee + _marketingAndDevFee + _liquidityFee;
     }
 
-    function setSwapAndLiquifyEnabled(bool _enabled) public onlyOwner {
+    function setSwapAndLiquifyEnabled(bool _enabled) public onlyOwner requireAuthenticated {
         swapAndLiquifyEnabled = _enabled;
         emit SwapAndLiquifyEnabledUpdated(_enabled);
     }
-    
-     // To recieve ETH from uniswapV2Router when swapping
-    receive() external payable {}
 
-    function _reflectFee(uint256 rFee, uint256 tFee) private {
-        _rTotal = _rTotal.sub(rFee);
-        _tFeeTotal = _tFeeTotal.add(tFee);
+    function setBlacklistForAddress(address _address, bool _toBlacklist) public onlyOwner requireAuthenticated {
+        _isBlacklisted[_address] = _toBlacklist;
     }
 
-    function _getValues(uint256 tAmount) private view returns (uint256, uint256, uint256, uint256, uint256, uint256) {
-        (uint256 tTransferAmount, uint256 tFee, uint256 tLiquidity) = _getTValues(tAmount);
-        (uint256 rAmount, uint256 rTransferAmount, uint256 rFee) = _getRValues(tAmount, tFee, tLiquidity, _getRate());
-        return (rAmount, rTransferAmount, rFee, tTransferAmount, tFee, tLiquidity);
-    }
-
-    function _getTValues(uint256 tAmount) private view returns (uint256, uint256, uint256) {
-        uint256 tFee = calculateFee(tAmount, _taxFee);
-        uint256 tLiquidity = calculateFee(tAmount, _liquidityFee);
-        uint256 tTransferAmount = tAmount.sub(tFee).sub(tLiquidity);
-        return (tTransferAmount, tFee, tLiquidity);
-    }
-
-    function _getRValues(uint256 tAmount, uint256 tFee, uint256 tLiquidity, uint256 currentRate) private pure returns (uint256, uint256, uint256) {
-        uint256 rAmount = tAmount.mul(currentRate);
-        uint256 rFee = tFee.mul(currentRate);
-        uint256 rLiquidity = tLiquidity.mul(currentRate);
-        uint256 rTransferAmount = rAmount.sub(rFee).sub(rLiquidity);
-        return (rAmount, rTransferAmount, rFee);
-    }
-
-    function _getRate() private view returns(uint256) {
-        (uint256 rSupply, uint256 tSupply) = _getCurrentSupply();
-        return rSupply.div(tSupply);
-    }
-
-    function _getCurrentSupply() private view returns(uint256, uint256) {
-        uint256 rSupply = _rTotal;
-        uint256 tSupply = _tTotal;      
-        for (uint256 i = 0; i < _excluded.length; i++) {
-            if (_rOwned[_excluded[i]] > rSupply || _tOwned[_excluded[i]] > tSupply) return (_rTotal, _tTotal);
-            rSupply = rSupply.sub(_rOwned[_excluded[i]]);
-            tSupply = tSupply.sub(_tOwned[_excluded[i]]);
-        }
-        if (rSupply < _rTotal.div(_tTotal)) return (_rTotal, _tTotal);
-        return (rSupply, tSupply);
+    function setMaxTokensSellToAddToLiquidity(uint256 tokenAmount) public onlyOwner requireAuthenticated {
+        maxTokensSellToAddToLiquidity = tokenAmount;
     }
     
-    function _takeLiquidity(uint256 tLiquidity) private {
-        uint256 currentRate =  _getRate();
-        uint256 rLiquidity = tLiquidity.mul(currentRate);
-        _rOwned[address(this)] = _rOwned[address(this)].add(rLiquidity);
-        if(_isExcluded[address(this)])
-            _tOwned[address(this)] = _tOwned[address(this)].add(tLiquidity);
-    }
-
-    function calculateFee(uint256 _amount, uint256 _fee) public view returns (uint256) {
-        if (_amount >= _tTotal.div(10**3)) {
-            // Higher tax for amounts over 0.1% of total supply
-            uint256 basicTax = _tTotal.div(10**3)
-                    .mul(_fee)
-                    .div(10**2);
-            
-            uint256 highTax = _amount.mul(10**3)
-                .sub(_tTotal)
-                .mul(_fee)
-                .mul(3)
-                .div(10**5);
-
-           return basicTax.add(highTax);
-        }
-        else {
-            return _amount.mul(_fee).div(
-            10**2
-        );
-        }
-    }
-    
-    function removeAllFee() private {
-        if(_taxFee == 0 && _liquidityFee == 0 && _charityFee == 0 && _marketingAndDevFee == 0) return;
-        
-        _previousTaxFee = _taxFee;
-        _previousLiquidityFee = _liquidityFee;
-        _previousCharityFee = _charityFee;
-        _previousMarketingAndDevFee = _previousMarketingAndDevFee;
-        
-        _taxFee = 0;
-        _liquidityFee = 0;
-        _charityFee = 0;
-        _marketingAndDevFee = 0;
-    }
-    
-    function restoreAllFee() private {
-        _taxFee = _previousTaxFee;
-        _liquidityFee = _previousLiquidityFee;
-        _charityFee = _previousCharityFee;
-        _marketingAndDevFee = _previousMarketingAndDevFee;
-    }
-    
-    function isExcludedFromFee(address account) public view returns(bool) {
-        return _isExcludedFromFee[account];
-    }
-
     function _approve(address owner, address spender, uint256 amount) private {
-        require(owner != address(0), "ERC20: approve from the zero address");
-        require(spender != address(0), "ERC20: approve to the zero address");
-
         _allowances[owner][spender] = amount;
         emit Approval(owner, spender, amount);
     }
@@ -1063,57 +898,39 @@ contract UtopiaToken is Context, IERC20, Ownable {
     ) private {
         require(from != address(0), "ERC20: transfer from the zero address");
         require(to != address(0), "ERC20: transfer to the zero address");
-        require(amount > 0, "Transfer amount must be greater than zero");
-        if(from != owner() && to != owner())
-            require(amount <= _maxTxAmount, "Transfer amount exceeds the maxTxAmount.");
-        
-        if(from != owner() && to != owner() && to != address(1) && to != address(0xDEAD) && to != uniswapV2Pair){
-            require(amount <= _maxTxAmount, "Transfer amount exceeds the maxTxAmount.");
-            uint256 contractBalanceRecepient = balanceOf(to);
-            require(contractBalanceRecepient + amount <= _maxWalletToken, "Exceeds maximum wallet token amount"); 
-        }
+        require(amount > 0, "Tx amount <= 0");
+        require(_isBlacklisted[from] == false && _isBlacklisted[to] == false, "No Tx to / from BL address");
 
         // is the token balance of this contract address over the min number of
         // tokens that we need to initiate a swap + liquidity lock?
         // also, don't get caught in a circular liquidity event.
         // also, don't swap & liquify if sender is uniswap pair.
         uint256 contractTokenBalance = balanceOf(address(this));
+
+        contractTokenBalance = contractTokenBalance >= maxTokensSellToAddToLiquidity ? maxTokensSellToAddToLiquidity : contractTokenBalance;
         
-        if(contractTokenBalance >= _maxTxAmount)
-        {
-            contractTokenBalance = _maxTxAmount;
-        }
-        
-        bool overMinTokenBalance = contractTokenBalance >= numTokensSellToAddToLiquidity;
         if (
-            overMinTokenBalance &&
+            contractTokenBalance > 0 &&
             !inSwapAndLiquify &&
-            from != uniswapV2Pair &&
+            !automatedMarketMakerPairs[from] &&
             swapAndLiquifyEnabled
         ) {
-            contractTokenBalance = numTokensSellToAddToLiquidity;
             //add liquidity
             swapAndLiquify(contractTokenBalance);
         }
         
-        //indicates if fee should be deducted from transfer
-        bool takeFee = true;
-        
-        //if any account belongs to _isExcludedFromFee account then remove the fee
-        if(_isExcludedFromFee[from] || _isExcludedFromFee[to]){
-            takeFee = false;
-        }
-        
-        //transfer amount, it will take tax, burn, liquidity fee
-        _tokenTransfer(from,to,amount,takeFee);
+        //transfer amount, it will take tax & liquidity fee
+        _tokenTransfer(from,to,amount);
     }
 
     function swapAndLiquify(uint256 contractTokenBalance) private lockTheSwap {
 
         // split the contract balance into halves
-        uint256 half = contractTokenBalance.div(2);
-        uint256 otherHalf = contractTokenBalance.sub(half);
-        uint256 totalLiqFee = _marketingAndDevFee + _liquidityFee + _charityFee;
+        uint256 utpHalf = contractTokenBalance
+            .mul(_liquidityFee.add(_redistributionFee.mul(2)))       // Eg 10 * (4 + (1 * 2)) / 2 = 3
+            .div(2)
+            .div(_taxFee);
+        uint256 bnbHalf = contractTokenBalance.sub(utpHalf);        // 7
 
         // capture the contract's current ETH balance.
         // this is so that we can capture exactly the amount of ETH that the
@@ -1122,44 +939,29 @@ contract UtopiaToken is Context, IERC20, Ownable {
         uint256 initialBalance = address(this).balance;
 
         // swap tokens for ETH
-        swapTokensForEth(half); // <- this breaks the ETH -> HATE swap when swap+liquify is triggered
+        swapTokensForEth(bnbHalf); // <- this breaks the ETH -> HATE swap when swap+liquify is triggered
 
         // how much ETH did we just swap into?
         uint256 newBalance = address(this).balance.sub(initialBalance);
         
-        // calculate the portions of the liquidity to add to charity
-        uint256 charityBalance = newBalance.div(totalLiqFee).mul(_charityFee);
-        uint256 charityPortion = otherHalf.div(totalLiqFee).mul(_charityFee);
-        // calculate the portions of the liquidity to add to marketing purposes
-        uint256 marketingBalance = newBalance.div(totalLiqFee).mul(_marketingAndDevFee);
-        uint256 marketingPortion = otherHalf.div(totalLiqFee).mul(_marketingAndDevFee);
+        // calculate the portions of the liquidity to add to marketing purposes\
+        // Eg. 5% tax, 1% redist, 4% liquidity
+        // => 5% BNB, 1% UTP, 2% BNB & 2% UTP
+        uint256 marketingBnb = newBalance                           // [7 / (4 + 10)] * 5 * 2 =   4
+            .div(_liquidityFee.add(_marketingAndDevFee.mul(2)))
+            .mul(_marketingAndDevFee.mul(2));
+        uint256 redistributionUtp = utpHalf
+            .div(_liquidityFee.add(_redistributionFee.mul(2)))      // [3 / (4 + 2)] * 1 * 2 = 1
+            .mul(_redistributionFee.mul(2));
         
-        uint256 finalBalance = newBalance.sub(charityBalance).sub(marketingBalance);
-        uint256 finalHalf = otherHalf.sub(charityPortion).sub(marketingPortion);
+        uint256 liquidityBnb = newBalance.sub(marketingBnb);
+        uint256 liquidityUtp = utpHalf.sub(redistributionUtp);
         
-        
-        
-        (bool sent, bytes memory data) = _charityAddress.call{value: charityBalance}("");
-        if(sent){
-            _tokenTransfer(address(this), 0x0000000000000000000000000000000000000001, charityPortion, false);
-            emit Transfer(address(this), 0x0000000000000000000000000000000000000001, charityPortion);
-        } else {
-            addLiquidity(charityPortion, charityBalance, _charityAddress);
-        }
-        
-        (sent, data) = _marketingDevAddress.call{value: marketingBalance}("");
-        if(sent){
-            _tokenTransfer(address(this), 0x0000000000000000000000000000000000000001, marketingPortion, false);
-            emit Transfer(address(this), 0x0000000000000000000000000000000000000001, marketingPortion);
-        } else {
-            addLiquidity(marketingPortion, marketingBalance, _marketingDevAddress);
-        }
+        _marketingDevAddress.transfer(marketingBnb);
+        _tokenTransfer(address(this), _marketingDevAddress, redistributionUtp);
         
         // add liquidity to uniswap
-        addLiquidity(finalHalf, finalBalance, firstOwner());
-        
-        // emit event for total liquidity added
-        emit SwapAndLiquify(half, newBalance, otherHalf);
+        addLiquidity(liquidityUtp, liquidityBnb, owner());
     }
 
     function swapTokensForEth(uint256 tokenAmount) private {
@@ -1180,7 +982,7 @@ contract UtopiaToken is Context, IERC20, Ownable {
         );
     }
 
-    function addLiquidity(uint256 tokenAmount, uint256 ethAmount, address charity) private {
+    function addLiquidity(uint256 tokenAmount, uint256 ethAmount, address recipient) private {
         // approve token transfer to cover all possible scenarios
         _approve(address(this), address(uniswapV2Router), tokenAmount);
 
@@ -1190,62 +992,37 @@ contract UtopiaToken is Context, IERC20, Ownable {
             tokenAmount,
             0, // slippage is unavoidable
             0, // slippage is unavoidable
-            charity,
+            recipient,
             block.timestamp
         );
     }
 
     //this method is responsible for taking all fee, if takeFee is true
-    function _tokenTransfer(address sender, address recipient, uint256 amount,bool takeFee) private {
-        if(!takeFee)
-            removeAllFee();
+    function _tokenTransfer(address sender, address recipient, uint256 amount) private {
         
-        if (_isExcluded[sender] && !_isExcluded[recipient]) {
-            _transferFromExcluded(sender, recipient, amount);
-        } else if (!_isExcluded[sender] && _isExcluded[recipient]) {
-            _transferToExcluded(sender, recipient, amount);
-        } else if (!_isExcluded[sender] && !_isExcluded[recipient]) {
-            _transferStandard(sender, recipient, amount);
-        } else if (_isExcluded[sender] && _isExcluded[recipient]) {
-            _transferBothExcluded(sender, recipient, amount);
-        } else {
-            _transferStandard(sender, recipient, amount);
+        uint256 fees;
+        if (_isIncludedForFee[sender] || _isIncludedForFee[recipient]) {
+            fees = amount.mul(_taxFee).div(10**2);
+
+            _balances[sender] = _balances[sender].sub(fees, 'BEP20: transfer amount exceeds balance');
+            _balances[address(this)] = _balances[address(this)].add(fees);
+            emit Transfer(sender, address(this), fees);
+
+            amount = amount.sub(fees);
         }
+
+        _balances[sender] = _balances[sender].sub(amount, 'BEP20: transfer amount exceeds balance');
+        _balances[recipient] = _balances[recipient].add(amount);
+        emit Transfer(sender, recipient, amount);
         
-        if(!takeFee)
-            restoreAllFee();
     }
 
-    function _transferStandard(address sender, address recipient, uint256 tAmount) private {
-        (uint256 rAmount, uint256 rTransferAmount, uint256 rFee, uint256 tTransferAmount, uint256 tFee, uint256 tLiquidity) = _getValues(tAmount);
-        _rOwned[sender] = _rOwned[sender].sub(rAmount);
-        _rOwned[recipient] = _rOwned[recipient].add(rTransferAmount);
-        _takeLiquidity(tLiquidity);
-        _reflectFee(rFee, tFee);
-        emit Transfer(sender, recipient, tTransferAmount);
-    }
-
-    function _transferToExcluded(address sender, address recipient, uint256 tAmount) private {
-        (uint256 rAmount, uint256 rTransferAmount, uint256 rFee, uint256 tTransferAmount, uint256 tFee, uint256 tLiquidity) = _getValues(tAmount);
-        _rOwned[sender] = _rOwned[sender].sub(rAmount);
-        _tOwned[recipient] = _tOwned[recipient].add(tTransferAmount);
-        _rOwned[recipient] = _rOwned[recipient].add(rTransferAmount);           
-        _takeLiquidity(tLiquidity);
-        _reflectFee(rFee, tFee);
-        emit Transfer(sender, recipient, tTransferAmount);
-    }
-
-    function _transferFromExcluded(address sender, address recipient, uint256 tAmount) private {
-        (uint256 rAmount, uint256 rTransferAmount, uint256 rFee, uint256 tTransferAmount, uint256 tFee, uint256 tLiquidity) = _getValues(tAmount);
-        _tOwned[sender] = _tOwned[sender].sub(tAmount);
-        _rOwned[sender] = _rOwned[sender].sub(rAmount);
-        _rOwned[recipient] = _rOwned[recipient].add(rTransferAmount);   
-        _takeLiquidity(tLiquidity);
-        _reflectFee(rFee, tFee);
-        emit Transfer(sender, recipient, tTransferAmount);
-    } 
-
-    function transferAnyERC20Token(address tokenAddress, uint256 tokens) onlyOwner public{
+    function transferAnyERC20Token(address tokenAddress, uint256 tokens) onlyOwner requireAuthenticated public {
         IERC20(tokenAddress).transfer(msg.sender, tokens);
+    }
+
+    // To only receive ETH from Router addresses when swapping
+    receive() external payable {
+        require(_allowedToSendBNBToContract[msg.sender], "UTOPIA: Only accept BNB from select addresses");
     }
 }

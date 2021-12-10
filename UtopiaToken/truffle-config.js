@@ -80,21 +80,23 @@ module.exports = {
     bscTestnet: {
       provider: () => new HDWalletProvider(
         mnemonic, 
-        'https://data-seed-prebsc-2-s1.binance.org:8545/',
+        'https://data-seed-prebsc-1-s1.binance.org:8545/',
       ),
       network_id: 97,
       skipDryRun: true,
-      gas: 9500000,
+      gas: 25000000,
     },
-    // bsc: {
-    //   provider: () => new HDWalletProvider(mnemonic, `https://bsc-dataseed1.binance.org`),
-    //   network_id: 56,
-    //   confirmations: 10,
-    //   timeoutBlocks: 200,
-    //   skipDryRun: true,
-    //   gas: 9500000,
-    //   gasPrice: 5000000001,
-    // },
+    bscMainnet: {
+      provider: () => new HDWalletProvider(
+        mnemonic, 
+        `https://bsc-dataseed1.binance.org`),
+      network_id: 56,
+      confirmations: 1,
+      timeoutBlocks: 200,
+      skipDryRun: true,
+      gas: 25000000,
+      // gasPrice: 5000000001,
+    },
   },
 
   // Set default mocha options here, use special reporters etc.
